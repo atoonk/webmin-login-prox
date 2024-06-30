@@ -20,6 +20,8 @@ jobs:
       - name: Auto Increment Version
         id: version
         run: |
+          # Fetch all tags to ensure they are available for comparison
+          git fetch --tags
           # Get the current version from the latest Git tag
           CURRENT_VERSION=$(git describe --tags $(git rev-list --tags --max-count=1) || echo "v0.0.0")
           # Increment the version (assuming semantic versioning)
@@ -37,7 +39,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if git rev-parse ${{ env.NEW_VERSION }} >/dev/null 2>&1 || git ls-remote --tags origin | grep ${{ env.NEW_VERSION }}; then
+          if git rev-parse ${{ env.NEW_VERSION }} >/dev/null 2>&1; then
             echo "Tag ${{ env.NEW_VERSION }} already exists"
           else
             git tag ${{ env.NEW_VERSION }}
