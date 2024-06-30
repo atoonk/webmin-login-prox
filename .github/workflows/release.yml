@@ -23,17 +23,6 @@ jobs:
         with:
           go-version: 1.19
 
-      - name: Install GoReleaser
-        run: |
-          curl -sL https://git.io/goreleaser | bash
-
-      - name: Verify GITHUB_TOKEN
-        run: |
-          echo "Verifying GITHUB_TOKEN"
-          echo "GITHUB_TOKEN is $GITHUB_TOKEN"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Auto Increment Version
         id: version
         run: |
@@ -53,7 +42,10 @@ jobs:
           git push origin ${{ env.NEW_VERSION }}
 
       - name: Run GoReleaser
-        run: goreleaser release --rm-dist
+        uses: goreleaser/goreleaser-action@v2
+        with:
+          version: latest
+          args: release --rm-dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
