@@ -121,7 +121,7 @@ func main() {
 		// all else is ok to send back
 		sessionCookies := sessionStore.Get(ProxySID)
 		for _, cookie := range sessionCookies {
-			if cookie.Name != "sid" {
+			if cookie.Name != "sid1111" {
 				r.AddCookie(cookie)
 			}
 		}
@@ -246,7 +246,7 @@ func authenticate(proxyURL *url.URL, r *http.Request) (string, error) {
 		log.Printf("New session: Border0 login for: %s from %s", r.Header.Get("X-Auth-Email"), r.Header.Get("X-Real-IP"))
 	} else {
 		// Anonymous login
-		log.Printf("New session: Anonymous login from %s", r.Header.Get("X-Real-IP"))
+		log.Printf("New session: Anonymous login from %s", r.RemoteAddr)
 	}
 	return ProxySID, nil
 }
