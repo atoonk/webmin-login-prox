@@ -11,16 +11,22 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v2
-        
+
       - name: Set up Go
         uses: actions/setup-go@v2
         with:
           go-version: 1.19
-        
+
       - name: Install GoReleaser
         run: |
           curl -sL https://git.io/goreleaser | bash
-        
+
+      - name: Debug Environment Variables
+        run: |
+          echo "GITHUB_TOKEN is $GITHUB_TOKEN"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Auto Increment Version
         id: version
         run: |
@@ -31,14 +37,14 @@ jobs:
           PATCH_VERSION=$((VERSION_PARTS[2] + 1))
           NEW_VERSION="${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.$PATCH_VERSION"
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
-          
+
       - name: Create Git Tag
         run: |
           git config --global user.email "you@example.com"
           git config --global user.name "Your Name"
           git tag ${{ env.NEW_VERSION }}
           git push origin ${{ env.NEW_VERSION }}
-        
+
       - name: Run GoReleaser
         run: goreleaser release --rm-dist
         env:
