@@ -24,6 +24,7 @@ type Config struct {
 	Password   string `json:"password"`
 }
 
+
 var (
 	config       Config
 	sessionStore = NewSessionStore()
