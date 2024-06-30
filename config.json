@@ -1,6 +1,7 @@
 {
     "webminURL": "https://127.0.0.1:10000",
-    "listenAddr": "127.0.0.1:8443",
     "username": "root",
-    "password": "yourpassword"
+    "password": "yourpassword",
+    "requireBorder0": false
+
 }

@@ -1,14 +1,18 @@
 package main
-// test1
 
 import (
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httputil"
@@ -16,18 +20,22 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Config struct {
-	WebminURL  string `json:"webminURL"`
-	ListenAddr string `json:"listenAddr"`
-	Username   string `json:"username"`
-	Password   string `json:"password"`
+	WebminURL      string `json:"webminURL"`
+	ListenAddr     string `json:"listenAddr"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	RequireBorder0 bool   `json:"requireBorder0"`
 }
 
-
 var (
-	config       Config
+	config = Config{
+		ListenAddr:     "127.0.0.1:8443",
+		RequireBorder0: true,
+	}
 	sessionStore = NewSessionStore()
 	sessionLocks = &sync.Map{}
 )
@@ -35,6 +43,9 @@ var (
 func main() {
 	// Load configuration
 	loadConfig("config.json")
+
+	// Validate configuration
+	validateConfig()
 
 	// Parse the Webmin URL
 	proxyURL, err := url.Parse(config.WebminURL)
@@ -63,6 +74,13 @@ func main() {
 	// Handle incoming requests
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		var ProxySID string
+
+		// Check if X-Auth-Email header is present, if so log the value
+		if config.RequireBorder0 && r.Header.Get("X-Auth-Email") == "" {
+			log.Printf("Access denied: Request did not come through Border0")
+			http.Error(w, "Access denied", http.StatusUnauthorized)
+			return
+		}
 
 		// Check if the request has the ProxySID cookie
 		for _, cookie := range r.Cookies() {
@@ -98,15 +116,22 @@ func main() {
 			}
 		}
 
-		// Add session cookies to the request
+		// Add session cookies to the request, filtering out the "sid" cookie
+		// "sid" is what webmin returns, we don't want to send it back to the client
+		// all else is ok to send back
 		sessionCookies := sessionStore.Get(ProxySID)
 		for _, cookie := range sessionCookies {
-			r.AddCookie(cookie)
+			if cookie.Name != "sid" {
+				r.AddCookie(cookie)
+			}
 		}
 
 		// Serve the request using the proxy
 		proxy.ServeHTTP(w, r)
 	})
+
+	// Check and generate TLS files if not present
+	checkAndGenerateTLSFiles("cert.pem", "key.pem")
 
 	log.Printf("Starting proxy server on %s", config.ListenAddr)
 	if err := http.ListenAndServeTLS(config.ListenAddr, "cert.pem", "key.pem", nil); err != nil {
@@ -118,13 +143,41 @@ func main() {
 func loadConfig(filename string) {
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Fatalf("Failed to open config file: %v", err)
+		log.Printf("Failed to open config file: %v", err)
+		return
 	}
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(&config); err != nil {
-		log.Fatalf("Failed to decode config file: %v", err)
+		log.Printf("Failed to decode config file: %v", err)
+	}
+}
+
+// validateConfig checks for required configuration values and logs warnings or exits if not found.
+func validateConfig() {
+	missingConfig := false
+
+	if config.WebminURL == "" {
+		log.Println("Error: Webmin URL is not set in the configuration.")
+		missingConfig = true
+	}
+
+	if config.Username == "" {
+		log.Println("Error: Username is not set in the configuration.")
+		missingConfig = true
+	}
+
+	if config.Password == "" {
+		log.Println("Error: Password is not set in the configuration.")
+		missingConfig = true
+	}
+	if !config.RequireBorder0 {
+		log.Println("⚠️ ⚠️ Warning: Border0 authentication is disabled, you're running an open proxy, this is dangerous.")
+	}
+
+	if missingConfig {
+		log.Fatal("Please set the required configuration values in config.json.")
 	}
 }
 
@@ -248,3 +301,53 @@ func (s *SessionStore) Get(ProxySID string) []*http.Cookie {
 	return s.sessions[ProxySID]
 }
 
+func checkAndGenerateTLSFiles(certFile, keyFile string) {
+	_, certErr := os.Stat(certFile)
+	_, keyErr := os.Stat(keyFile)
+
+	if os.IsNotExist(certErr) || os.IsNotExist(keyErr) {
+		log.Println("No TLS PEM files found, generating some to get started...")
+		generateTLSFiles(certFile, keyFile)
+	}
+}
+
+// generateTLSFiles generates and writes TLS certificate and key files to disk.
+func generateTLSFiles(certFile, keyFile string) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		log.Fatalf("Failed to generate private key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Webmin Login Proxy"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		log.Fatalf("Failed to create certificate: %v", err)
+	}
+
+	certOut, err := os.Create(certFile)
+	if err != nil {
+		log.Fatalf("Failed to open cert.pem for writing: %v", err)
+	}
+	pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	certOut.Close()
+	log.Println("Written cert.pem")
+
+	keyOut, err := os.Create(keyFile)
+	if err != nil {
+		log.Fatalf("Failed to open key.pem for writing: %v", err)
+	}
+	pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+	keyOut.Close()
+	log.Println("Written key.pem")
+}
