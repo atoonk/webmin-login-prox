@@ -1,3 +1,6 @@
+# This is the version of the configuration file format
+version: 2
+
 builds:
   - id: myapp
     main: ./cmd/myapp/main.go
@@ -33,3 +36,5 @@ release:
     owner: atoonk
     name: webmin-login-prox
     token: {{ .Env.GITHUB_TOKEN }}
+
+
