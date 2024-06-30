@@ -39,9 +39,13 @@ jobs:
           git config --global user.email "you@example.com"
           git config --global user.name "Your Name"
           git tag ${{ env.NEW_VERSION }}
-          git push origin ${{ env.NEW_VERSION }}
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/atoonk/webmin-login-prox.git ${{ env.NEW_VERSION }}
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v2
-       
+        with:
+          version: latest
+          args: release --rm-dist
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
