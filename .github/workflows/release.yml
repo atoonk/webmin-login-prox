@@ -32,8 +32,8 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config --global user.email "you@example.com"
-          git config --global user.name "Your Name"
+          git config --global user.email "your-project@example.com"
+          git config --global user.name "Your Project Bot"
 
       - name: Create Git Tag
         env:
