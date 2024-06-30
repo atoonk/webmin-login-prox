@@ -1,0 +1,35 @@
+builds:
+  - id: myapp
+    main: ./cmd/myapp/main.go
+    binary: myapp
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - 386
+      - arm64
+    goarm:
+      - 6
+      - 7
+    env:
+      - CGO_ENABLED=0
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+
+release:
+  github:
+    owner: atoonk
+    name: webmin-login-prox
+    token: {{ .Env.GITHUB_TOKEN }}
