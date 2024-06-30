@@ -92,38 +92,29 @@ func main() {
 
 		// If no ProxySID cookie or session not authenticated, perform authentication
 		if ProxySID == "" || !sessionStore.IsAuthenticated(ProxySID) {
-			sessionLock := getSessionLock(ProxySID)
-			sessionLock.Lock()
-			defer sessionLock.Unlock()
-
-			if ProxySID == "" || !sessionStore.IsAuthenticated(ProxySID) {
-				var err error
-				ProxySID, err = authenticate(proxyURL, r)
-				if err != nil {
-					http.Error(w, "Failed to authenticate", http.StatusUnauthorized)
-					log.Printf("Authentication failed: %v", err)
-					return
-				}
-
-				// Set the ProxySID cookie
-				http.SetCookie(w, &http.Cookie{
-					Name:     "ProxySID",
-					Value:    ProxySID,
-					Path:     "/",
-					HttpOnly: true,
-					Secure:   true,
-				})
+			ProxySID, err = authenticateAndSetCookies(proxyURL, r, w)
+			if err != nil {
+				http.Error(w, "Failed to authenticate", http.StatusUnauthorized)
+				log.Printf("Authentication failed: %v", err)
+				return
 			}
 		}
 
-		// Add session cookies to the request, filtering out the "sid" cookie
-		// "sid" is what webmin returns, we don't want to send it back to the client
-		// all else is ok to send back
+		// Check if the upstream session is still valid
+		// Re-authenticate if the sid cookie is invalid
+		if !isUpstreamSessionValid(ProxySID) {
+			ProxySID, err = authenticateAndSetCookies(proxyURL, r, w)
+			if err != nil {
+				http.Error(w, "Failed to re-authenticate", http.StatusUnauthorized)
+				log.Printf("Re-authentication failed: %v", err)
+				return
+			}
+		}
+
+		// Add session cookies to the request
 		sessionCookies := sessionStore.Get(ProxySID)
 		for _, cookie := range sessionCookies {
-			if cookie.Name != "sid1111" {
-				r.AddCookie(cookie)
-			}
+			r.AddCookie(cookie)
 		}
 
 		// Serve the request using the proxy
@@ -179,6 +170,25 @@ func validateConfig() {
 	if missingConfig {
 		log.Fatal("Please set the required configuration values in config.json.")
 	}
+}
+
+// authenticateAndSetCookies performs the login to the Webmin server, stores the session cookies, and sets the ProxySID cookie.
+func authenticateAndSetCookies(proxyURL *url.URL, r *http.Request, w http.ResponseWriter) (string, error) {
+	ProxySID, err := authenticate(proxyURL, r)
+	if err != nil {
+		return "", err
+	}
+
+	// Set the ProxySID cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "ProxySID",
+		Value:    ProxySID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+	})
+
+	return ProxySID, nil
 }
 
 // authenticate performs the login to the Webmin server and stores the session cookies.
@@ -264,6 +274,17 @@ func generateSessionID() (string, error) {
 func getSessionLock(ProxySID string) *sync.Mutex {
 	lock, _ := sessionLocks.LoadOrStore(ProxySID, &sync.Mutex{})
 	return lock.(*sync.Mutex)
+}
+
+// isUpstreamSessionValid checks if the upstream session is still valid by verifying the value of the sid cookie.
+func isUpstreamSessionValid(ProxySID string) bool {
+	sessionCookies := sessionStore.Get(ProxySID)
+	for _, cookie := range sessionCookies {
+		if cookie.Name == "sid" && (cookie.Value == "x" || cookie.Value == "") {
+			return false
+		}
+	}
+	return true
 }
 
 // SessionStore manages session cookies for different clients.
