@@ -12,12 +12,6 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v2
 
-      - name: Debug Environment Variables
-        run: |
-          echo "GITHUB_TOKEN is $GITHUB_TOKEN"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Set up Go
         uses: actions/setup-go@v2
         with:
@@ -30,7 +24,7 @@ jobs:
 
       - name: Authenticate with GitHub CLI
         run: |
-          echo ${{ secrets.GITHUB_TOKEN }} | gh auth login --with-token
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
       - name: Auto Increment Version
         id: version
@@ -44,6 +38,8 @@ jobs:
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
 
       - name: Create Git Tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.email "you@example.com"
           git config --global user.name "Your Name"
