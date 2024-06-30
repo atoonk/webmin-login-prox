@@ -37,8 +37,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if git rev-parse "$NEW_VERSION" >/dev/null 2>&1; then
-            echo "Tag $NEW_VERSION already exists"
+          if git rev-parse ${{ env.NEW_VERSION }} >/dev/null 2>&1 || git ls-remote --tags origin | grep ${{ env.NEW_VERSION }}; then
+            echo "Tag ${{ env.NEW_VERSION }} already exists"
           else
             git tag ${{ env.NEW_VERSION }}
             git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/atoonk/webmin-login-prox.git ${{ env.NEW_VERSION }}
