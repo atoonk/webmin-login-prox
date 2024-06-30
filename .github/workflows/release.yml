@@ -17,15 +17,6 @@ jobs:
         with:
           go-version: 1.19
 
-      - name: Install GitHub CLI
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gh
-
-      - name: Authenticate with GitHub CLI
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-
       - name: Auto Increment Version
         id: version
         run: |
@@ -37,12 +28,15 @@ jobs:
           NEW_VERSION="v${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.$PATCH_VERSION"
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
 
+      - name: Configure Git
+        run: |
+          git config --global user.email "you@example.com"
+          git config --global user.name "Your Name"
+
       - name: Create Git Tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --global user.email "you@example.com"
-          git config --global user.name "Your Name"
           git tag ${{ env.NEW_VERSION }}
           git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/atoonk/webmin-login-prox.git ${{ env.NEW_VERSION }}
 
