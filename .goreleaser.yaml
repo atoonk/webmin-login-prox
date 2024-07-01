@@ -3,7 +3,7 @@ version: 2
 builds:
   - id: myapp
     main: ./main.go
-    binary: myapp
+    binary: webmin-login-proxy
     goos:
       - linux
     goarch:
@@ -23,6 +23,7 @@ archives:
     files:
       - LICENSE
       - README.md
+      - config.json
 
 changelog:
   sort: asc
