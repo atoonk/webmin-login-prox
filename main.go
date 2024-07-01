@@ -182,7 +182,6 @@ func main() {
 		r.Header.Del("Cookie")
 
 		// After serving the request, ensure cookies set by Webmin are sent back to the client
-		fmt.Println("respCookies", respCookies)
 		for _, cookie := range respCookies {
 			http.SetCookie(w, cookie)
 		}
@@ -261,7 +260,6 @@ func authenticateAndSetCookies(proxyURL *url.URL, r *http.Request, w http.Respon
 // authenticate performs the login to the Webmin server and stores the session cookies.
 func authenticate(proxyURL *url.URL, r *http.Request) (string, error) {
 	jar, _ := cookiejar.New(nil)
-	fmt.Println("playing with cookies")
 
 	client := &http.Client{
 		Jar: jar,
