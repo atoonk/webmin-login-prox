@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -61,6 +62,24 @@ func main() {
 		},
 	}
 
+	// Modify the response to store the cookies in the session store and send them back to the client
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		// Retrieve ProxySID from context
+		ProxySID, ok := resp.Request.Context().Value("ProxySID").(string)
+		if !ok {
+			return nil
+		}
+
+		if ProxySID != "" {
+			sessionLock := getSessionLock(ProxySID)
+			sessionLock.Lock()
+			defer sessionLock.Unlock()
+
+			sessionStore.Set(ProxySID, resp.Cookies())
+		}
+		return nil
+	}
+
 	// Handle proxy errors
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		if err != nil && strings.Contains(err.Error(), "context canceled") {
@@ -92,6 +111,11 @@ func main() {
 
 		// If no ProxySID cookie or session not authenticated, perform authentication
 		if ProxySID == "" || !sessionStore.IsAuthenticated(ProxySID) {
+			sessionLock := getSessionLock(ProxySID)
+			sessionLock.Lock()
+			defer sessionLock.Unlock()
+
+			var err error
 			ProxySID, err = authenticateAndSetCookies(proxyURL, r, w)
 			if err != nil {
 				http.Error(w, "Failed to authenticate", http.StatusUnauthorized)
@@ -103,6 +127,11 @@ func main() {
 		// Check if the upstream session is still valid
 		// Re-authenticate if the sid cookie is invalid
 		if !isUpstreamSessionValid(ProxySID) {
+			sessionLock := getSessionLock(ProxySID)
+			sessionLock.Lock()
+			defer sessionLock.Unlock()
+
+			var err error
 			ProxySID, err = authenticateAndSetCookies(proxyURL, r, w)
 			if err != nil {
 				http.Error(w, "Failed to re-authenticate", http.StatusUnauthorized)
@@ -110,6 +139,10 @@ func main() {
 				return
 			}
 		}
+
+		// Set ProxySID in the request context
+		ctx := context.WithValue(r.Context(), "ProxySID", ProxySID)
+		r = r.WithContext(ctx)
 
 		// Add session cookies to the request
 		sessionCookies := sessionStore.Get(ProxySID)
@@ -119,6 +152,40 @@ func main() {
 
 		// Serve the request using the proxy
 		proxy.ServeHTTP(w, r)
+
+		// Get cookies from the response
+		respCookies := sessionStore.Get(ProxySID)
+
+		// Handle logout if sid=x
+		for _, cookie := range respCookies {
+			if cookie.Name == "sid" && (cookie.Value == "x" || cookie.Value == "") {
+
+				// Clear the ProxySID cookie on the client
+				http.SetCookie(w, &http.Cookie{
+					Name:     "ProxySID",
+					Value:    "",
+					Path:     "/",
+					HttpOnly: true,
+					Secure:   true,
+					Expires:  time.Unix(0, 0),
+				})
+
+				// Clear the session
+				sessionStore.Delete(ProxySID)
+				log.Printf("User logged out: %s", ProxySID)
+
+				return
+			}
+		}
+
+		// Clear existing cookies
+		r.Header.Del("Cookie")
+
+		// After serving the request, ensure cookies set by Webmin are sent back to the client
+		fmt.Println("respCookies", respCookies)
+		for _, cookie := range respCookies {
+			http.SetCookie(w, cookie)
+		}
 	})
 
 	// Check and generate TLS files if not present
@@ -194,6 +261,7 @@ func authenticateAndSetCookies(proxyURL *url.URL, r *http.Request, w http.Respon
 // authenticate performs the login to the Webmin server and stores the session cookies.
 func authenticate(proxyURL *url.URL, r *http.Request) (string, error) {
 	jar, _ := cookiejar.New(nil)
+	fmt.Println("playing with cookies")
 
 	client := &http.Client{
 		Jar: jar,
@@ -312,7 +380,31 @@ func (s *SessionStore) IsAuthenticated(ProxySID string) bool {
 func (s *SessionStore) Set(ProxySID string, cookies []*http.Cookie) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	s.sessions[ProxySID] = cookies
+	if existingCookies, ok := s.sessions[ProxySID]; ok {
+		// Append new cookies to the existing ones, replacing any with the same name
+		cookieMap := make(map[string]*http.Cookie)
+		for _, cookie := range existingCookies {
+			cookieMap[cookie.Name] = cookie
+		}
+		for _, cookie := range cookies {
+			cookieMap[cookie.Name] = cookie
+		}
+		// Convert the map back to a slice
+		mergedCookies := make([]*http.Cookie, 0, len(cookieMap))
+		for _, cookie := range cookieMap {
+			mergedCookies = append(mergedCookies, cookie)
+		}
+		s.sessions[ProxySID] = mergedCookies
+	} else {
+		s.sessions[ProxySID] = cookies
+	}
+}
+
+// Delete removes session cookies for a client.
+func (s *SessionStore) Delete(ProxySID string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	delete(s.sessions, ProxySID)
 }
 
 // Get retrieves session cookies for a client.
